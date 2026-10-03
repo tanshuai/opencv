@@ -2,46 +2,24 @@ name: arm64 build checks
 
 on: workflow_dispatch
 
+permissions:
+  contents: read
+
+concurrency:
+  group: arm64-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-
-    runs-on: ubuntu-18.04
-
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-    - uses: actions/checkout@v2
-    - name: Install dependency packages
-      run: |
-        sudo sed -i -E 's|^deb ([^ ]+) (.*)$|deb [arch=amd64] \1 \2\ndeb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \2|' /etc/apt/sources.list
-        sudo dpkg --add-architecture arm64
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-                crossbuild-essential-arm64 \
-                git \
-                cmake \
-                libpython-dev:arm64 \
-                libpython3-dev:arm64 \
-                python-numpy \
-                python3-numpy
-
-    - name: Fetch opencv_contrib
-      run: |
-        git clone --depth 1 https://github.com/opencv/opencv_contrib.git ../opencv_contrib
-
-    - name: Configure
-      run: |
-        mkdir build
-        cd build
-        cmake -DPYTHON2_INCLUDE_PATH=/usr/include/python2.7/ \
-              -DPYTHON2_LIBRARIES=/usr/lib/aarch64-linux-gnu/libpython2.7.so \
-              -DPYTHON2_NUMPY_INCLUDE_DIRS=/usr/lib/python2.7/dist-packages/numpy/core/include \
-              -DPYTHON3_INCLUDE_PATH=/usr/include/python3.6m/ \
-              -DPYTHON3_LIBRARIES=/usr/lib/aarch64-linux-gnu/libpython3.6m.so \
-              -DPYTHON3_NUMPY_INCLUDE_DIRS=/usr/lib/python3/dist-packages/numpy/core/include \
-              -DCMAKE_TOOLCHAIN_FILE=../platforms/linux/aarch64-gnu.toolchain.cmake \
-              -DOPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules \
-              ../
-
-    - name: Build
-      run: |
-        cd build
-        make -j$(nproc --all)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Cross-build in the preserved ARM64 legacy sysroot
+        timeout-minutes: 40
+        shell: bash
+        run: |
+          docker run --rm --platform linux/amd64 \
+            --volume "$GITHUB_WORKSPACE:/work" --workdir /work \
+            ubuntu@sha256:dca176c9663a7ba4c1f0e710986f5a25e672842963d95b960191e2d9f7185ebe \
+            bash .github/scripts/arm64-legacy-build.sh
