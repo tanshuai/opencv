@@ -53,7 +53,7 @@ for library in arm64-results/{core,python2,python3}/*.so*; do
   aarch64-linux-gnu-readelf --wide --symbols "$library" | grep -E 'initcv2|PyInit_cv2' || [[ "$library" == *'/core/'* ]]
 done > arm64-results/ELF-AND-ABI.txt
 sha256sum arm64-results/{core,python2,python3}/*.so* > arm64-results/SHA256SUMS
-{ git -C /work rev-parse HEAD; git -C /opencv_contrib rev-parse HEAD; } > arm64-results/SOURCE-COMMITS.txt
+{ git -c safe.directory=/work -C /work rev-parse HEAD; git -C /opencv_contrib rev-parse HEAD; } > arm64-results/SOURCE-COMMITS.txt
 printf '%s\n' 'Container: ubuntu@sha256:dca176c9663a7ba4c1f0e710986f5a25e672842963d95b960191e2d9f7185ebe' > arm64-results/BUILD-CONTRACT.txt
 printf '%s\n' 'AArch64 core; Python2.7 initcv2; Python3.6 PyInit_cv2; binary consumers not executed.' >> arm64-results/BUILD-CONTRACT.txt
 # Preserve OpenCV's linked library closure under each actual SONAME, without three duplicate aliases.
