@@ -15,8 +15,28 @@ for attempt in 1 2; do
 done
 git -C /opencv_contrib checkout --detach FETCH_HEAD
 test "$(git -C /opencv_contrib rev-parse HEAD)" = d5317d6297a8129b66dba1a1f7cc784e94639da9
-mkdir -p build
-cd build
+# Cheap provenance preflight occurs before configure/compile.
+mkdir -p /work/build/arm64-results
+source_sha=$(git -c safe.directory=/work -C /work rev-parse HEAD)
+[[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+contrib_sha=$(git -C /opencv_contrib rev-parse HEAD)
+[[ "$contrib_sha" == d5317d6297a8129b66dba1a1f7cc784e94639da9 ]]
+printf '%s\n%s\n' "$source_sha" "$contrib_sha" > /work/build/arm64-results/SOURCE-COMMITS.txt
+printf '%s\n' 'ubuntu@sha256:dca176c9663a7ba4c1f0e710986f5a25e672842963d95b960191e2d9f7185ebe; original Python2.7/Python3.6 sysroot; no generated code executed' > /work/build/arm64-results/BUILD-CONTRACT.txt
+collector=/work/.github/scripts/arm64-artifact-manifest.py
+collect_outputs() {
+  python3 "$collector" collect --libdir /work/build/lib --output /work/build/arm64-results \
+    --sysroot /usr/lib/aarch64-linux-gnu --sysroot /lib/aarch64-linux-gnu --sysroot /usr/aarch64-linux-gnu/lib
+}
+finish() {
+  original_status=$?
+  trap - EXIT
+  # Diagnostic preservation does not change the original real compiler/validation exit code.
+  collect_outputs || true
+  exit "$original_status"
+}
+trap finish EXIT
+cd /work/build
 cmake -DBUILD_opencv_python2=ON -DBUILD_opencv_python3=ON \
   -DPYTHON2_EXECUTABLE=/usr/bin/python2.7 -DPYTHON3_EXECUTABLE=/usr/bin/python3.6 \
   -DPYTHON2_INCLUDE_PATH=/usr/include/python2.7/ \
@@ -28,42 +48,8 @@ cmake -DBUILD_opencv_python2=ON -DBUILD_opencv_python3=ON \
   -DCMAKE_TOOLCHAIN_FILE=../platforms/linux/aarch64-gnu.toolchain.cmake \
   -DOPENCV_EXTRA_MODULES_PATH=/opencv_contrib/modules ../
 make -j2
-# A green build must contain a real ARM64 core library, not merely exit without expected output.
-core_library=$(find lib -maxdepth 1 -type f -name 'libopencv_core.so.*' -print -quit)
-test -n "$core_library"
-aarch64-linux-gnu-readelf -h "$core_library" | grep 'Machine:.*AArch64' > /dev/null
-# Preserve readable original artifacts and architectural evidence; never execute the generated libraries.
-mkdir -p arm64-results/core arm64-results/python2 arm64-results/python3
-cp "$core_library" arm64-results/core/
-for python in 2 3; do
-  if [[ "$python" == 2 ]]; then symbol=initcv2; else symbol=PyInit_cv2; fi
-  binding=''
-  while IFS= read -r candidate; do
-    if aarch64-linux-gnu-readelf --wide --symbols "$candidate" | awk -v symbol="$symbol" '$NF == symbol {found=1} END {exit !found}'; then
-      binding="$candidate"
-      break
-    fi
-  done < <(find lib -type f -name 'cv2*.so')
-  test -n "$binding"
-  aarch64-linux-gnu-readelf -h "$binding" | grep 'Machine:.*AArch64' > /dev/null
-  cp "$binding" "arm64-results/python${python}/"
-done
-for library in arm64-results/{core,python2,python3}/*.so*; do
-  aarch64-linux-gnu-readelf -h "$library"
-  aarch64-linux-gnu-readelf --wide --symbols "$library" | grep -E 'initcv2|PyInit_cv2' || [[ "$library" == *'/core/'* ]]
-done > arm64-results/ELF-AND-ABI.txt
-sha256sum arm64-results/{core,python2,python3}/*.so* > arm64-results/SHA256SUMS
-{ git -c safe.directory=/work -C /work rev-parse HEAD; git -C /opencv_contrib rev-parse HEAD; } > arm64-results/SOURCE-COMMITS.txt
-printf '%s\n' 'Container: ubuntu@sha256:dca176c9663a7ba4c1f0e710986f5a25e672842963d95b960191e2d9f7185ebe' > arm64-results/BUILD-CONTRACT.txt
-printf '%s\n' 'AArch64 core; Python2.7 initcv2; Python3.6 PyInit_cv2; binary consumers not executed.' >> arm64-results/BUILD-CONTRACT.txt
-# Preserve OpenCV's linked library closure under each actual SONAME, without three duplicate aliases.
-mkdir -p arm64-results/libraries
-while IFS= read -r library; do
-  soname=$(aarch64-linux-gnu-readelf --dynamic "$library" | sed -n 's/.*(SONAME).*\[\([^]]*\)\].*/\1/p')
-  test -n "$soname"
-  cp "$library" "arm64-results/libraries/$soname"
-done < <(find lib -maxdepth 1 -type f -name 'libopencv_*.so.*')
-for library in arm64-results/{libraries,python2,python3}/*.so*; do
-  aarch64-linux-gnu-readelf --dynamic "$library"
-done > arm64-results/DEPENDENCIES.txt
-sha256sum arm64-results/{core,libraries,python2,python3}/*.so* > arm64-results/SHA256SUMS
+# Always preserve raw OpenCV/Python/system library bytes before strict output validation.
+collect_outputs
+python3 "$collector" verify --output /work/build/arm64-results
+mkdir -p /work/build/arm64-results/licenses
+find /usr/share/doc -maxdepth 2 -name copyright -type f -exec cp --parents '{}' /work/build/arm64-results/licenses/ \;
