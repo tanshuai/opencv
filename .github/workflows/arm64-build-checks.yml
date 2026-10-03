@@ -1,6 +1,11 @@
 name: arm64 build checks
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/arm64-build-checks.yml
+      - .github/scripts/arm64-legacy-build.sh
 
 permissions:
   contents: read
