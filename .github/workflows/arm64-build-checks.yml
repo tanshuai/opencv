@@ -5,7 +5,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/arm64-build-checks.yml
-      - .github/scripts/arm64-legacy-build.sh
+      - .github/scripts/arm64-*
 
 permissions:
   contents: read
@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -45,3 +46,19 @@ jobs:
             build/CMakeFiles/CMakeConfigureLog.yaml
             build/CMakeFiles/CMakeError.log
             build/CMakeFiles/CMakeOutput.log
+
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch only the reviewed complete compile revision
+        shell: bash
+        run: timeout 60 git fetch --no-tags --depth=1 origin 6a2c21f581f48c7d1e59480267f3ca9747c219b9
+      - name: Validate current source contracts and real verifier rejection cases
+        run: python3 .github/scripts/arm64-workflow-contract.py
