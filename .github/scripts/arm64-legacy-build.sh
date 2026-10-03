@@ -5,10 +5,14 @@ sed -i -E 's|^deb ([^ ]+) (.*)$|deb [arch=amd64] \1 \2\ndeb [arch=arm64] http://
 dpkg --add-architecture arm64
 apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 update
 DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
-  crossbuild-essential-arm64 git cmake libpython-dev:arm64 libpython3-dev:arm64 python-numpy python3-numpy
+  crossbuild-essential-arm64 git ca-certificates cmake libpython-dev:arm64 libpython3-dev:arm64 python-numpy python3-numpy
 # A rolling opencv_contrib HEAD is incompatible with this reviewed OpenCV 4.5.3-dev source.
 git init /opencv_contrib
-git -C /opencv_contrib fetch --depth 1 https://github.com/opencv/opencv_contrib.git d5317d6297a8129b66dba1a1f7cc784e94639da9
+for attempt in 1 2; do
+  if timeout 90 git -C /opencv_contrib fetch --depth 1 https://github.com/opencv/opencv_contrib.git d5317d6297a8129b66dba1a1f7cc784e94639da9; then break; fi
+  [[ "$attempt" == 1 ]] || exit 1
+  sleep 2
+done
 git -C /opencv_contrib checkout --detach FETCH_HEAD
 test "$(git -C /opencv_contrib rev-parse HEAD)" = d5317d6297a8129b66dba1a1f7cc784e94639da9
 mkdir -p build

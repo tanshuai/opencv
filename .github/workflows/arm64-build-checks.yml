@@ -26,10 +26,11 @@ jobs:
         timeout-minutes: 40
         shell: bash
         run: |
+          set -o pipefail
           docker run --rm --platform linux/amd64 \
             --volume "$GITHUB_WORKSPACE:/work" --workdir /work \
             ubuntu@sha256:dca176c9663a7ba4c1f0e710986f5a25e672842963d95b960191e2d9f7185ebe \
-            bash .github/scripts/arm64-legacy-build.sh
+            bash .github/scripts/arm64-legacy-build.sh 2>&1 | tee arm64-build.log
       - name: Preserve verified ARM64 outputs and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -38,6 +39,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
           path: |
+            arm64-build.log
             build/arm64-results/**
             build/CMakeCache.txt
             build/CMakeFiles/CMakeConfigureLog.yaml
