@@ -31,16 +31,21 @@ make -j2
 # A green build must contain a real ARM64 core library, not merely exit without expected output.
 core_library=$(find lib -maxdepth 1 -type f -name 'libopencv_core.so.*' -print -quit)
 test -n "$core_library"
-aarch64-linux-gnu-readelf -h "$core_library" | grep -q 'Machine:.*AArch64'
+aarch64-linux-gnu-readelf -h "$core_library" | grep 'Machine:.*AArch64' > /dev/null
 # Preserve readable original artifacts and architectural evidence; never execute the generated libraries.
 mkdir -p arm64-results/core arm64-results/python2 arm64-results/python3
 cp "$core_library" arm64-results/core/
 for python in 2 3; do
-  binding=$(find "lib/python${python}" -type f -name 'cv2*.so' -print -quit)
-  test -n "$binding"
-  aarch64-linux-gnu-readelf -h "$binding" | grep -q 'Machine:.*AArch64'
   if [[ "$python" == 2 ]]; then symbol=initcv2; else symbol=PyInit_cv2; fi
-  aarch64-linux-gnu-readelf --wide --symbols "$binding" | grep -Eq "[[:space:]]${symbol}$"
+  binding=''
+  while IFS= read -r candidate; do
+    if aarch64-linux-gnu-readelf --wide --symbols "$candidate" | awk -v symbol="$symbol" '$NF == symbol {found=1} END {exit !found}'; then
+      binding="$candidate"
+      break
+    fi
+  done < <(find lib -type f -name 'cv2*.so')
+  test -n "$binding"
+  aarch64-linux-gnu-readelf -h "$binding" | grep 'Machine:.*AArch64' > /dev/null
   cp "$binding" "arm64-results/python${python}/"
 done
 for library in arm64-results/{core,python2,python3}/*.so*; do
@@ -51,3 +56,14 @@ sha256sum arm64-results/{core,python2,python3}/*.so* > arm64-results/SHA256SUMS
 { git -C /work rev-parse HEAD; git -C /opencv_contrib rev-parse HEAD; } > arm64-results/SOURCE-COMMITS.txt
 printf '%s\n' 'Container: ubuntu@sha256:dca176c9663a7ba4c1f0e710986f5a25e672842963d95b960191e2d9f7185ebe' > arm64-results/BUILD-CONTRACT.txt
 printf '%s\n' 'AArch64 core; Python2.7 initcv2; Python3.6 PyInit_cv2; binary consumers not executed.' >> arm64-results/BUILD-CONTRACT.txt
+# Preserve OpenCV's linked library closure under each actual SONAME, without three duplicate aliases.
+mkdir -p arm64-results/libraries
+while IFS= read -r library; do
+  soname=$(aarch64-linux-gnu-readelf --dynamic "$library" | sed -n 's/.*(SONAME).*\[\([^]]*\)\].*/\1/p')
+  test -n "$soname"
+  cp "$library" "arm64-results/libraries/$soname"
+done < <(find lib -maxdepth 1 -type f -name 'libopencv_*.so.*')
+for library in arm64-results/{libraries,python2,python3}/*.so*; do
+  aarch64-linux-gnu-readelf --dynamic "$library"
+done > arm64-results/DEPENDENCIES.txt
+sha256sum arm64-results/{core,libraries,python2,python3}/*.so* > arm64-results/SHA256SUMS
